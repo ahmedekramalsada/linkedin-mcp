@@ -4,7 +4,11 @@ import { tokenStore } from './token-store.js';
 const LI_AUTH_BASE = 'https://www.linkedin.com/oauth/v2';
 
 export function getAuthUrl(clientId, redirectUri, state) {
-  const scopes = ['openid', 'profile', 'email', 'w_member_social'].join(' ');
+  // r_member_social = READ your own posts (required for GET /rest/posts)
+  // w_member_social = CREATE / DELETE / LIKE / COMMENT
+  // openid + profile + email = get your person URN via /v2/userinfo
+  const scopes = ['openid', 'profile', 'email', 'w_member_social', 'r_member_social'].join(' ');
+
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
@@ -29,8 +33,6 @@ export async function exchangeCode({ code, clientId, clientSecret, redirectUri }
   });
 
   const data = res.data;
-
-  // expires_in is in seconds (LinkedIn tokens last ~5184000s = 60 days)
   const expires_at = Date.now() + (data.expires_in || 5184000) * 1000;
 
   return {
@@ -44,7 +46,9 @@ export async function exchangeCode({ code, clientId, clientSecret, redirectUri }
 
 export async function refreshAccessToken({ clientId, clientSecret }) {
   const tokens = tokenStore.get();
-  if (!tokens?.refresh_token) throw new Error('No refresh token available. Re-authenticate at /auth/linkedin');
+  if (!tokens?.refresh_token) {
+    throw new Error('No refresh token available. Re-authenticate at /auth/linkedin');
+  }
 
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -60,13 +64,7 @@ export async function refreshAccessToken({ clientId, clientSecret }) {
   const data = res.data;
   const expires_at = Date.now() + (data.expires_in || 5184000) * 1000;
 
-  const updated = {
-    ...tokens,
-    access_token: data.access_token,
-    expires_in: data.expires_in,
-    expires_at,
-  };
-
+  const updated = { ...tokens, access_token: data.access_token, expires_in: data.expires_in, expires_at };
   tokenStore.save(updated);
   console.log('[Auth] Token refreshed successfully');
   return updated;
