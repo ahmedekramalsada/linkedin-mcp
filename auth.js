@@ -6,7 +6,7 @@ const LI_AUTH_BASE = 'https://www.linkedin.com/oauth/v2';
 export function getAuthUrl(clientId, redirectUri, state) {
   // w_member_social = CREATE / DELETE / LIKE / COMMENT
   // openid + profile + email = get your person URN via /v2/userinfo
-  const scopes = ['openid', 'profile', 'email', 'w_member_social'].join(' ');
+  const scopes = ['openid', 'profile', 'email', 'w_member_social', 'r_member_social'].join(' ');
 
   const params = new URLSearchParams({
     response_type: 'code',
