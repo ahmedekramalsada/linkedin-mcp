@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "linkedin": {
+      "url": "http://162.62.134.218:3005/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer e0d597dc2e50f2a880e102a6b5fb732812c76b3bf07e09ed4141b678dd001fa2"
+      }
+    }
+  }
+}

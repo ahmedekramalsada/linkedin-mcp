@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinkedIn MCP — Control Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --border: #1e2330;
+    --border-glow: #0a66c2;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --accent: #0a66c2;
+    --accent-light: #1e88e5;
+    --green: #10b981;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Space Grotesk', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(10,102,194,0.12) 0%, transparent 60%),
+      linear-gradient(180deg, rgba(10,102,194,0.03) 0%, transparent 100%);
+  }
+
+  .container { width: 100%; max-width: 760px; }
+
+  /* ─── Header ─── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 48px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    width: 44px; height: 44px;
+    background: var(--accent);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px; color: white;
+    font-family: var(--mono);
+    flex-shrink: 0;
+  }
+
+  .header-text h1 {
+    font-size: 20px; font-weight: 600; letter-spacing: -0.3px;
+    color: var(--text);
+  }
+
+  .header-text p {
+    font-size: 13px; color: var(--muted); margin-top: 2px;
+    font-family: var(--mono);
+  }
+
+  .version-badge {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 6px;
+  }
+
+  /* ─── Cards ─── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: rgba(10,102,194,0.4); }
+
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .card-title {
+    font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  /* ─── Status ─── */
+  .status-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .status-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .status-row:first-child { padding-top: 0; }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .status-dot.green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .status-dot.yellow { background: var(--yellow); }
+  .status-dot.grey { background: var(--muted); }
+
+  .status-label { font-size: 14px; color: var(--text); flex: 1; }
+  .status-value {
+    font-size: 13px; color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 10px;
+    font-size: 14px; font-weight: 500;
+    cursor: pointer; border: none;
+    font-family: var(--sans);
+    transition: all 0.15s;
+    text-decoration: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--accent-light); transform: translateY(-1px); }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--red);
+    border: 1px solid rgba(239,68,68,0.3);
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.08); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+
+  /* ─── Tools grid ─── */
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
+
+  .tool-chip {
+    background: rgba(10,102,194,0.06);
+    border: 1px solid rgba(10,102,194,0.15);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #7eb8f7;
+  }
+
+  .tool-chip .tool-name { font-weight: 600; margin-bottom: 3px; }
+  .tool-chip .tool-desc { color: var(--muted); font-size: 11px; }
+
+  /* ─── Code block ─── */
+  .code-block {
+    background: #080a0e;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: #a8b5d0;
+    line-height: 1.7;
+    overflow-x: auto;
+    position: relative;
+  }
+
+  .code-block .comment { color: #4b5563; }
+  .code-block .key { color: #7eb8f7; }
+  .code-block .value { color: #a78bfa; }
+  .code-block .string { color: #6ee7b7; }
+
+  /* ─── Alert ─── */
+  .alert {
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  .alert-success { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); color: var(--green); }
+  .alert-error { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: var(--red); }
+
+  /* ─── Footer ─── */
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+
+  .pulse {
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">in</div>
+    <div class="header-text">
+      <h1>LinkedIn MCP Control Panel</h1>
+      <p>AI Agent ↔ LinkedIn Bridge</p>
+    </div>
+    <div class="version-badge">v1.0.0</div>
+  </div>
+
+  <!-- Alert (shown from URL params) -->
+  <div id="alert" style="display:none"></div>
+
+  <!-- Connection Status Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Connection Status</span>
+      <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;" onclick="refreshStatus()">↻ Refresh</button>
+    </div>
+
+    <div class="status-row">
+      <div class="status-dot" id="dot-linkedin"></div>
+      <span class="status-label">LinkedIn OAuth</span>
+      <span class="status-value" id="val-linkedin">Checking...</span>
+    </div>
+
+    <div class="status-row">
+      <div class="status-dot" id="dot-token"></div>
+      <span class="status-label">Access Token Expiry</span>
+      <span class="status-value" id="val-token">—</span>
+    </div>
+
+    <div class="status-row">
+      <div class="status-dot" id="dot-refresh"></div>
+      <span class="status-label">Refresh Token</span>
+      <span class="status-value" id="val-refresh">—</span>
+    </div>
+
+    <div class="status-row">
+      <div class="status-dot green pulse"></div>
+      <span class="status-label">MCP Server</span>
+      <span class="status-value" id="val-server">Running</span>
+    </div>
+
+    <div class="btn-row">
+      <a href="/auth/linkedin" class="btn btn-primary" id="btn-connect">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+        Connect LinkedIn
+      </a>
+      <button class="btn btn-danger" id="btn-disconnect" onclick="disconnect()" style="display:none">
+        Disconnect
+      </button>
+      <button class="btn btn-ghost" id="btn-refresh-token" onclick="refreshToken()" style="display:none">
+        ↻ Refresh Token
+      </button>
+    </div>
+  </div>
+
+  <!-- MCP Endpoint Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Agent Connection</span>
+    </div>
+
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
+      Add this to your AI agent (batabeto/OpenClaw) MCP config:
+    </p>
+
+    <div class="code-block" id="mcp-config">
+      <span class="comment">// OpenClaw / batabeto MCP config</span><br>
+      {<br>
+      &nbsp;&nbsp;<span class="key">"mcpServers"</span>: {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"linkedin"</span>: {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"url"</span>: <span class="string" id="mcp-url">"http://YOUR_EC2_IP:3000/mcp"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"transport"</span>: <span class="string">"http"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"headers"</span>: {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"Authorization"</span>: <span class="string">"Bearer YOUR_MCP_SECRET_KEY"</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;}<br>
+      }
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="copyConfig()">⎘ Copy Config</button>
+    </div>
+  </div>
+
+  <!-- Tools Card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Available Tools</span>
+      <span style="font-size:12px;color:var(--muted);font-family:var(--mono)">10 tools</span>
+    </div>
+
+    <div class="tools-grid">
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_get_profile</div>
+        <div class="tool-desc">Get your profile info</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_create_post</div>
+        <div class="tool-desc">Create text/article post</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_get_my_posts</div>
+        <div class="tool-desc">List your recent posts</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_delete_post</div>
+        <div class="tool-desc">Delete a post by ID</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_get_post_analytics</div>
+        <div class="tool-desc">Likes, comments, shares</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_like_post</div>
+        <div class="tool-desc">Like any post</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_comment_on_post</div>
+        <div class="tool-desc">Comment on a post</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_get_connections</div>
+        <div class="tool-desc">List your network</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_search_people</div>
+        <div class="tool-desc">Find people by keywords</div>
+      </div>
+      <div class="tool-chip">
+        <div class="tool-name">linkedin_get_auth_status</div>
+        <div class="tool-desc">Check auth status</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">linkedin-mcp · Node.js + MCP SDK · Built for batabeto agent</div>
+</div>
+
+<script>
+  // Show URL-based alerts
+  const params = new URLSearchParams(location.search);
+  const alertEl = document.getElementById('alert');
+  if (params.get('success')) {
+    alertEl.innerHTML = '✅ LinkedIn connected successfully! Your AI agent can now control LinkedIn.';
+    alertEl.className = 'alert alert-success';
+    alertEl.style.display = 'flex';
+    history.replaceState({}, '', '/');
+  } else if (params.get('error')) {
+    alertEl.innerHTML = '❌ ' + decodeURIComponent(params.get('error'));
+    alertEl.className = 'alert alert-error';
+    alertEl.style.display = 'flex';
+    history.replaceState({}, '', '/');
+  }
+
+  // Update MCP URL display
+  document.getElementById('mcp-url').textContent = `"${location.origin}/mcp"`;
+
+  async function refreshStatus() {
+    const res = await fetch('/auth/status');
+    const data = await res.json();
+
+    const dot = document.getElementById('dot-linkedin');
+    const val = document.getElementById('val-linkedin');
+    const dotToken = document.getElementById('dot-token');
+    const valToken = document.getElementById('val-token');
+    const dotRefresh = document.getElementById('dot-refresh');
+    const valRefresh = document.getElementById('val-refresh');
+    const btnConnect = document.getElementById('btn-connect');
+    const btnDisconnect = document.getElementById('btn-disconnect');
+    const btnRefreshToken = document.getElementById('btn-refresh-token');
+
+    if (data.connected) {
+      dot.className = 'status-dot green';
+      val.textContent = '✅ Connected';
+      btnConnect.style.display = 'none';
+      btnDisconnect.style.display = 'inline-flex';
+
+      if (data.expires_at) {
+        const exp = new Date(data.expires_at);
+        const daysLeft = Math.floor((exp - Date.now()) / 86400000);
+        dotToken.className = daysLeft < 7 ? 'status-dot yellow' : 'status-dot green';
+        valToken.textContent = `${exp.toLocaleDateString()} (${daysLeft}d left)`;
+        if (daysLeft < 7) btnRefreshToken.style.display = 'inline-flex';
+      }
+
+      dotRefresh.className = data.has_refresh_token ? 'status-dot green' : 'status-dot red';
+      valRefresh.textContent = data.has_refresh_token ? 'Available' : 'Not available';
+    } else {
+      dot.className = 'status-dot red';
+      val.textContent = '❌ Not connected';
+      dotToken.className = 'status-dot grey';
+      valToken.textContent = '—';
+      dotRefresh.className = 'status-dot grey';
+      valRefresh.textContent = '—';
+      btnConnect.style.display = 'inline-flex';
+      btnDisconnect.style.display = 'none';
+    }
+  }
+
+  async function disconnect() {
+    if (!confirm('Disconnect LinkedIn? Your AI agent will lose access.')) return;
+    await fetch('/auth/disconnect', { method: 'POST' });
+    refreshStatus();
+  }
+
+  async function refreshToken() {
+    const res = await fetch('/auth/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      alert('✅ Token refreshed successfully!');
+      refreshStatus();
+    } else {
+      alert('❌ Refresh failed: ' + data.error);
+    }
+  }
+
+  function copyConfig() {
+    const config = {
+      mcpServers: {
+        linkedin: {
+          url: `${location.origin}/mcp`,
+          transport: 'http',
+          headers: { Authorization: 'Bearer YOUR_MCP_SECRET_KEY' }
+        }
+      }
+    };
+    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    alert('Config copied to clipboard!');
+  }
+
+  // Initial load
+  refreshStatus();
+  // Auto-refresh every 60s
+  setInterval(refreshStatus, 60_000);
+</script>
+</body>
+</html>
