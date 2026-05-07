@@ -4,9 +4,11 @@ import { tokenStore } from './token-store.js';
 const LI_V2   = 'https://api.linkedin.com/v2';
 const LI_REST = 'https://api.linkedin.com/rest';
 
-// LinkedIn versioned API — update monthly or use a stable pinned version
-// Format: YYYYMM. Must be within the last 12 months.
-const LI_VERSION = '202504';
+// ─── LinkedIn-Version ─────────────────────────────────────────────────────────
+// Must be YYYYMM format, within the last 12 months.
+// Current date: May 2026 → use 202605.
+// Update this if you get "version not supported" errors.
+const LI_VERSION = '202605';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,39 +18,39 @@ function getToken() {
   return tokens.access_token;
 }
 
-/** Base headers used by all calls */
-function baseHeaders(token) {
+/**
+ * ALL LinkedIn API calls now need LinkedIn-Version header.
+ * Even the "legacy" /v2/ugcPosts endpoint requires it now (error: NO_VERSION).
+ */
+function headers(token) {
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'X-Restli-Protocol-Version': '2.0.0',
+    'LinkedIn-Version': LI_VERSION,
   };
 }
 
-/** Headers for the new /rest versioned endpoints */
-function restHeaders(token) {
-  return { ...baseHeaders(token), 'LinkedIn-Version': LI_VERSION };
-}
-
-/**
- * Extracts a human-readable error from an Axios error so we can
- * surface exactly what LinkedIn said, not a generic message.
- */
 function liError(err) {
-  const status  = err.response?.status;
-  const liMsg   = err.response?.data?.message
-               || err.response?.data?.error_description
-               || err.response?.data?.serviceErrorCode
-               || JSON.stringify(err.response?.data)
-               || err.message;
-  return { status, message: liMsg, raw: err.response?.data };
+  const status = err.response?.status;
+  const msg = err.response?.data?.message
+    || err.response?.data?.error_description
+    || JSON.stringify(err.response?.data)
+    || err.message;
+  return { status, message: msg, raw: err.response?.data };
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 
 export async function getMyProfile() {
   const token = getToken();
-  const res = await axios.get(`${LI_V2}/userinfo`, { headers: baseHeaders(token) });
+  // userinfo doesn't need LinkedIn-Version — it's an OpenID Connect endpoint
+  const res = await axios.get(`${LI_V2}/userinfo`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+  });
   return res.data;
 }
 
@@ -61,63 +63,45 @@ export async function getMyProfileUrn() {
   return urn;
 }
 
-// ─── Posts ────────────────────────────────────────────────────────────────────
+// ─── Create Post ──────────────────────────────────────────────────────────────
 
 export async function createPost({ text, visibility = 'PUBLIC', articleUrl = null, articleTitle = null, articleDescription = null }) {
   const token     = getToken();
   const authorUrn = await getMyProfileUrn();
 
-  // Use the new /rest/posts API for creating
-  const body = {
-    author: authorUrn,
-    commentary: text,
-    visibility: visibility,   // PUBLIC | CONNECTIONS | LOGGED_IN
-    distribution: {
-      feedDistribution: 'MAIN_FEED',
-      targetEntities: [],
-      thirdPartyDistributionChannels: [],
-    },
-    lifecycleState: 'PUBLISHED',
-    isReshareDisabledByAuthor: false,
-  };
-
-  if (articleUrl) {
-    body.content = {
-      article: {
-        source: articleUrl,
-        title: articleTitle || articleUrl,
-        description: articleDescription || '',
-      },
-    };
-  }
-
+  // Try new /rest/posts first
   try {
-    const res = await axios.post(`${LI_REST}/posts`, body, { headers: restHeaders(token) });
-    const postId = res.headers['x-restli-id'] || null;
-    return {
-      success: true,
-      post_id: postId,
-      post_url: postId ? `https://www.linkedin.com/feed/update/${postId}` : null,
-      message: 'Post created successfully',
+    const body = {
+      author: authorUrn,
+      commentary: text,
+      visibility,
+      distribution: {
+        feedDistribution: 'MAIN_FEED',
+        targetEntities: [],
+        thirdPartyDistributionChannels: [],
+      },
+      lifecycleState: 'PUBLISHED',
+      isReshareDisabledByAuthor: false,
     };
+    if (articleUrl) {
+      body.content = {
+        article: { source: articleUrl, title: articleTitle || articleUrl, description: articleDescription || '' },
+      };
+    }
+    const res = await axios.post(`${LI_REST}/posts`, body, { headers: headers(token) });
+    const postId = res.headers['x-restli-id'] || null;
+    return { success: true, post_id: postId, post_url: postId ? `https://www.linkedin.com/feed/update/${postId}` : null, message: 'Post created' };
   } catch (err) {
     const e = liError(err);
-    // Fallback to legacy ugcPosts if the new API rejects
-    if (e.status === 400 || e.status === 403) {
-      console.warn(`[createPost] /rest/posts failed (${e.status}), trying legacy ugcPosts...`);
-      return createPostLegacy({ text, visibility, authorUrn, articleUrl, articleTitle, articleDescription, token });
-    }
-    throw new Error(`LinkedIn create post failed (${e.status}): ${e.message}`);
+    console.warn(`[createPost] /rest/posts failed (${e.status}), trying ugcPosts...`);
   }
-}
 
-async function createPostLegacy({ text, visibility, authorUrn, articleUrl, articleTitle, articleDescription, token }) {
+  // Fallback: legacy ugcPosts (also needs LinkedIn-Version now)
   let shareMediaCategory = 'NONE';
   let media = [];
   if (articleUrl) {
     shareMediaCategory = 'ARTICLE';
-    media = [{ status: 'READY', originalUrl: articleUrl,
-      title: { text: articleTitle || articleUrl }, description: { text: articleDescription || '' } }];
+    media = [{ status: 'READY', originalUrl: articleUrl, title: { text: articleTitle || articleUrl }, description: { text: articleDescription || '' } }];
   }
   const body = {
     author: authorUrn,
@@ -131,158 +115,118 @@ async function createPostLegacy({ text, visibility, authorUrn, articleUrl, artic
     },
     visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': visibility },
   };
-  const res = await axios.post(`${LI_V2}/ugcPosts`, body, { headers: baseHeaders(token) });
+  const res = await axios.post(`${LI_V2}/ugcPosts`, body, { headers: headers(token) });
   const postId = res.headers['x-restli-id'] || res.data.id;
-  return {
-    success: true,
-    post_id: postId,
-    post_url: postId ? `https://www.linkedin.com/feed/update/${postId}` : null,
-    message: 'Post created successfully (via legacy API)',
-  };
+  return { success: true, post_id: postId, post_url: postId ? `https://www.linkedin.com/feed/update/${postId}` : null, message: 'Post created (ugcPosts)' };
 }
 
-// ─── READ POSTS — tries 3 strategies, surfaces real errors ───────────────────
+// ─── Read Posts ───────────────────────────────────────────────────────────────
 
 export async function getMyPosts({ count = 10, start = 0 } = {}) {
   const token     = getToken();
   const authorUrn = await getMyProfileUrn();
   const errors    = [];
 
-  // ── Strategy 1: New versioned /rest/posts API ────────────────────────────
-  // Requires r_member_social scope + LinkedIn-Version header
+  // Strategy 1: /rest/posts (new API) — needs LinkedIn-Version (fixed: was 202504, now 202605)
   try {
-    console.log(`[getMyPosts] Trying /rest/posts for ${authorUrn}`);
+    console.log(`[getMyPosts] Trying /rest/posts (version ${LI_VERSION})`);
     const res = await axios.get(`${LI_REST}/posts`, {
-      headers: restHeaders(token),
-      params: {
-        author: authorUrn,
-        q: 'author',
-        count,
-        start,
-      },
+      headers: headers(token),
+      params: { author: authorUrn, q: 'author', count, start },
     });
-    const posts = (res.data.elements || []).map(parseRestPost);
-    return {
-      source: 'rest/posts (new API)',
-      posts,
-      total: res.data.paging?.total ?? posts.length,
-      start: res.data.paging?.start ?? 0,
-    };
+    const posts = (res.data.elements || []).map(p => ({
+      id: p.id,
+      text: p.commentary || '',
+      created_at: p.createdAt ? new Date(p.createdAt).toISOString() : null,
+      lifecycle_state: p.lifecycleState,
+      visibility: p.visibility,
+      url: p.id ? `https://www.linkedin.com/feed/update/${p.id}` : null,
+    }));
+    return { source: 'rest/posts', posts, total: res.data.paging?.total ?? posts.length, start: res.data.paging?.start ?? 0 };
   } catch (err) {
     const e = liError(err);
     console.warn(`[getMyPosts] /rest/posts failed: ${e.status} — ${e.message}`);
-    errors.push({ endpoint: '/rest/posts', ...e });
+    errors.push({ endpoint: 'GET /rest/posts', status: e.status, message: e.message });
   }
 
-  // ── Strategy 2: Legacy ugcPosts with correct List() encoding ─────────────
-  // Requires r_member_social or w_member_social (depending on LinkedIn version)
-  // IMPORTANT: the URN inside List() must NOT be double-encoded by axios.
-  // We build the URL manually to control encoding precisely.
+  // Strategy 2: /v2/ugcPosts with LinkedIn-Version header (fixes NO_VERSION error)
+  // encoded URN inside List()
   try {
-    console.log(`[getMyPosts] Trying /v2/ugcPosts for ${authorUrn}`);
-    // Encode only the URN part, keep List() brackets raw
+    console.log(`[getMyPosts] Trying /v2/ugcPosts (version ${LI_VERSION})`);
     const encodedUrn = encodeURIComponent(authorUrn);
-    const url = `${LI_V2}/ugcPosts?q=authors&authors=List(${encodedUrn})&count=${count}&start=${start}`;
-    const res = await axios.get(url, { headers: baseHeaders(token) });
-    const posts = (res.data.elements || []).map(parseUgcPost);
-    return {
-      source: 'v2/ugcPosts (legacy API)',
-      posts,
-      total: res.data.paging?.total ?? posts.length,
-      start: res.data.paging?.start ?? 0,
-    };
+    const res = await axios.get(
+      `${LI_V2}/ugcPosts?q=authors&authors=List(${encodedUrn})&count=${count}&start=${start}`,
+      { headers: headers(token) },  // ← LinkedIn-Version now included
+    );
+    const posts = (res.data.elements || []).map(p => ({
+      id: p.id,
+      text: p.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text || '',
+      created_at: p.created?.time ? new Date(p.created.time).toISOString() : null,
+      lifecycle_state: p.lifecycleState,
+      visibility: p.visibility?.['com.linkedin.ugc.MemberNetworkVisibility'] || null,
+      url: p.id ? `https://www.linkedin.com/feed/update/${p.id}` : null,
+    }));
+    return { source: 'v2/ugcPosts', posts, total: res.data.paging?.total ?? posts.length, start: res.data.paging?.start ?? 0 };
   } catch (err) {
     const e = liError(err);
     console.warn(`[getMyPosts] /v2/ugcPosts failed: ${e.status} — ${e.message}`);
-    errors.push({ endpoint: '/v2/ugcPosts', ...e });
+    errors.push({ endpoint: 'GET /v2/ugcPosts (encoded)', status: e.status, message: e.message });
   }
 
-  // ── Strategy 3: ugcPosts with raw (un-encoded) URN inside List() ──────────
-  // Some LinkedIn API versions want the URN unencoded inside List()
+  // Strategy 3: ugcPosts with raw (unencoded) URN
   try {
-    console.log(`[getMyPosts] Trying /v2/ugcPosts with raw URN`);
-    const url = `${LI_V2}/ugcPosts?q=authors&authors=List(${authorUrn})&count=${count}&start=${start}`;
-    const res = await axios.get(url, { headers: baseHeaders(token) });
-    const posts = (res.data.elements || []).map(parseUgcPost);
-    return {
-      source: 'v2/ugcPosts raw-urn (legacy API)',
-      posts,
-      total: res.data.paging?.total ?? posts.length,
-      start: res.data.paging?.start ?? 0,
-    };
+    console.log(`[getMyPosts] Trying /v2/ugcPosts raw URN`);
+    const res = await axios.get(
+      `${LI_V2}/ugcPosts?q=authors&authors=List(${authorUrn})&count=${count}&start=${start}`,
+      { headers: headers(token) },
+    );
+    const posts = (res.data.elements || []).map(p => ({
+      id: p.id,
+      text: p.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text || '',
+      created_at: p.created?.time ? new Date(p.created.time).toISOString() : null,
+      lifecycle_state: p.lifecycleState,
+      visibility: p.visibility?.['com.linkedin.ugc.MemberNetworkVisibility'] || null,
+      url: p.id ? `https://www.linkedin.com/feed/update/${p.id}` : null,
+    }));
+    return { source: 'v2/ugcPosts (raw URN)', posts, total: res.data.paging?.total ?? posts.length, start: res.data.paging?.start ?? 0 };
   } catch (err) {
     const e = liError(err);
-    console.warn(`[getMyPosts] /v2/ugcPosts raw URN failed: ${e.status} — ${e.message}`);
-    errors.push({ endpoint: '/v2/ugcPosts-raw', ...e });
+    console.warn(`[getMyPosts] /v2/ugcPosts raw failed: ${e.status} — ${e.message}`);
+    errors.push({ endpoint: 'GET /v2/ugcPosts (raw)', status: e.status, message: e.message });
   }
 
-  // All 3 failed — return the real errors so you can debug
+  // All failed — return real errors
   return {
     success: false,
     posts: [],
     errors,
     diagnosis: diagnose(errors),
-    fix: 'See diagnosis above. Most common fix: disconnect and reconnect LinkedIn at /auth/linkedin to grant r_member_social scope.',
   };
 }
 
-/** Parse a post from the new /rest/posts API */
-function parseRestPost(post) {
-  return {
-    id: post.id || '',
-    text: post.commentary || '',
-    created_at: post.createdAt ? new Date(post.createdAt).toISOString() : null,
-    lifecycle_state: post.lifecycleState,
-    visibility: post.visibility,
-    url: post.id ? `https://www.linkedin.com/feed/update/${post.id}` : null,
-    media_type: post.content ? Object.keys(post.content)[0] : null,
-  };
-}
-
-/** Parse a post from the legacy ugcPosts API */
-function parseUgcPost(post) {
-  return {
-    id: post.id || '',
-    text: post.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text || '',
-    created_at: post.created?.time ? new Date(post.created.time).toISOString() : null,
-    lifecycle_state: post.lifecycleState,
-    visibility: post.visibility?.['com.linkedin.ugc.MemberNetworkVisibility'] || null,
-    url: post.id ? `https://www.linkedin.com/feed/update/${post.id}` : null,
-  };
-}
-
-/** Give the user a human-readable explanation of what went wrong */
 function diagnose(errors) {
   const statuses = errors.map(e => e.status);
-  if (statuses.every(s => s === 403)) {
-    return 'All endpoints returned 403 Forbidden. Your token is missing the r_member_social scope. Disconnect and reconnect LinkedIn at /auth/linkedin.';
+  if (statuses.some(s => s === 403)) {
+    const msg403 = errors.find(e => e.status === 403)?.message || '';
+    if (msg403.includes('NO_VERSION')) return 'Fixed: LinkedIn-Version header is now sent. If still failing, re-deploy and reconnect.';
+    return `403 Forbidden: ${msg403}. Reconnect LinkedIn at /auth/linkedin to refresh scopes.`;
   }
   if (statuses.every(s => s === 400)) {
-    return 'All endpoints returned 400 Bad Request. Either (a) r_member_social scope not approved for your LinkedIn App, or (b) your person URN is wrong. Check the LinkedIn Developer Portal → your app → Auth tab → ensure r_member_social is listed.';
+    return 'All endpoints returned 400. Possible causes: (a) LinkedIn-Version too old — update LI_VERSION in linkedin.js, (b) r_member_social scope not granted — reconnect at /auth/linkedin.';
   }
-  if (statuses.some(s => s === 401)) {
-    return 'Token expired or invalid. Reconnect at /auth/linkedin.';
-  }
-  return `Mixed errors: ${errors.map(e => `${e.endpoint}=${e.status}`).join(', ')}`;
+  return errors.map(e => `${e.endpoint}: ${e.status} — ${e.message}`).join(' | ');
 }
 
-// ─── Delete ───────────────────────────────────────────────────────────────────
+// ─── Delete Post ──────────────────────────────────────────────────────────────
 
 export async function deletePost({ post_id }) {
   const token = getToken();
-
-  // Try new /rest/posts first, fall back to /v2/ugcPosts
   try {
-    await axios.delete(`${LI_REST}/posts/${encodeURIComponent(post_id)}`, { headers: restHeaders(token) });
-    return { success: true, message: `Post ${post_id} deleted` };
-  } catch (err) {
-    const e = liError(err);
-    if (e.status === 404 || e.status === 400) {
-      // Try legacy
-      await axios.delete(`${LI_V2}/ugcPosts/${encodeURIComponent(post_id)}`, { headers: baseHeaders(token) });
-      return { success: true, message: `Post ${post_id} deleted (via legacy API)` };
-    }
-    throw new Error(`Delete failed (${e.status}): ${e.message}`);
+    await axios.delete(`${LI_REST}/posts/${encodeURIComponent(post_id)}`, { headers: headers(token) });
+    return { success: true, message: `Deleted ${post_id}` };
+  } catch {
+    await axios.delete(`${LI_V2}/ugcPosts/${encodeURIComponent(post_id)}`, { headers: headers(token) });
+    return { success: true, message: `Deleted ${post_id} (ugcPosts)` };
   }
 }
 
@@ -291,23 +235,17 @@ export async function deletePost({ post_id }) {
 export async function getPostAnalytics({ post_id }) {
   const token = getToken();
   try {
-    const res = await axios.get(
-      `${LI_REST}/socialMetadata/${encodeURIComponent(post_id)}`,
-      { headers: restHeaders(token) }
-    );
-    const data = res.data;
-    const totalReactions = Object.values(data.reactionSummaries || {})
-      .reduce((sum, r) => sum + (r.count || 0), 0);
+    const res = await axios.get(`${LI_REST}/socialMetadata/${encodeURIComponent(post_id)}`, { headers: headers(token) });
+    const totalReactions = Object.values(res.data.reactionSummaries || {}).reduce((s, r) => s + (r.count || 0), 0);
     return {
       post_id,
       total_reactions: totalReactions,
-      reaction_breakdown: data.reactionSummaries || {},
-      comments: data.commentSummary?.count || 0,
-      top_level_comments: data.commentSummary?.topLevelCount || 0,
+      reaction_breakdown: res.data.reactionSummaries || {},
+      comments: res.data.commentSummary?.count || 0,
     };
   } catch (err) {
     const e = liError(err);
-    return { post_id, error: `Analytics failed (${e.status}): ${e.message}`, raw: e.raw };
+    return { post_id, error: `${e.status}: ${e.message}` };
   }
 }
 
@@ -317,40 +255,30 @@ export async function commentOnPost({ post_id, text }) {
   const token = getToken();
   const authorUrn = await getMyProfileUrn();
   const body = { actor: authorUrn, message: { text } };
-
   try {
-    const res = await axios.post(
-      `${LI_REST}/socialActions/${encodeURIComponent(post_id)}/comments`,
-      body,
-      { headers: restHeaders(token) }
-    );
-    return { success: true, comment_id: res.headers['x-restli-id'] || res.data.id, message: 'Comment posted' };
-  } catch (err) {
-    // Fallback to v2
-    const res2 = await axios.post(
-      `${LI_V2}/socialActions/${encodeURIComponent(post_id)}/comments`,
-      body,
-      { headers: baseHeaders(token) }
-    );
-    return { success: true, comment_id: res2.data.id, message: 'Comment posted (legacy API)' };
+    const res = await axios.post(`${LI_REST}/socialActions/${encodeURIComponent(post_id)}/comments`, body, { headers: headers(token) });
+    return { success: true, comment_id: res.headers['x-restli-id'] || res.data.id };
+  } catch {
+    const res = await axios.post(`${LI_V2}/socialActions/${encodeURIComponent(post_id)}/comments`, body, { headers: headers(token) });
+    return { success: true, comment_id: res.data.id };
   }
 }
 
 export async function getPostComments({ post_id, count = 20 }) {
   const token = getToken();
   try {
-    const res = await axios.get(
-      `${LI_REST}/socialActions/${encodeURIComponent(post_id)}/comments`,
-      { headers: restHeaders(token), params: { count } }
-    );
-    const comments = (res.data.elements || []).map(c => ({
-      id: c.id, text: c.message?.text || '', actor: c.actor,
-      created_at: c.created?.time ? new Date(c.created.time).toISOString() : null,
-    }));
-    return { post_id, comments, total: res.data.paging?.total ?? comments.length };
+    const res = await axios.get(`${LI_REST}/socialActions/${encodeURIComponent(post_id)}/comments`, { headers: headers(token), params: { count } });
+    return {
+      post_id,
+      comments: (res.data.elements || []).map(c => ({
+        id: c.id, text: c.message?.text || '', actor: c.actor,
+        created_at: c.created?.time ? new Date(c.created.time).toISOString() : null,
+      })),
+      total: res.data.paging?.total ?? 0,
+    };
   } catch (err) {
     const e = liError(err);
-    return { post_id, error: `Comments failed (${e.status}): ${e.message}`, comments: [] };
+    return { post_id, error: `${e.status}: ${e.message}`, comments: [] };
   }
 }
 
@@ -360,67 +288,35 @@ export async function likePost({ post_id }) {
   const token = getToken();
   const authorUrn = await getMyProfileUrn();
   try {
-    await axios.post(
-      `${LI_REST}/socialActions/${encodeURIComponent(post_id)}/likes`,
-      { actor: authorUrn },
-      { headers: restHeaders(token) }
-    );
+    await axios.post(`${LI_REST}/socialActions/${encodeURIComponent(post_id)}/likes`, { actor: authorUrn }, { headers: headers(token) });
   } catch {
-    await axios.post(
-      `${LI_V2}/socialActions/${encodeURIComponent(post_id)}/likes`,
-      { actor: authorUrn },
-      { headers: baseHeaders(token) }
-    );
+    await axios.post(`${LI_V2}/socialActions/${encodeURIComponent(post_id)}/likes`, { actor: authorUrn }, { headers: headers(token) });
   }
-  return { success: true, message: `Liked post ${post_id}` };
+  return { success: true, message: `Liked ${post_id}` };
 }
 
 export async function unlikePost({ post_id }) {
   const token = getToken();
   const authorUrn = await getMyProfileUrn();
   try {
-    await axios.delete(
-      `${LI_REST}/socialActions/${encodeURIComponent(post_id)}/likes/${encodeURIComponent(authorUrn)}`,
-      { headers: restHeaders(token) }
-    );
+    await axios.delete(`${LI_REST}/socialActions/${encodeURIComponent(post_id)}/likes/${encodeURIComponent(authorUrn)}`, { headers: headers(token) });
   } catch {
-    await axios.delete(
-      `${LI_V2}/socialActions/${encodeURIComponent(post_id)}/likes/${encodeURIComponent(authorUrn)}`,
-      { headers: baseHeaders(token) }
-    );
+    await axios.delete(`${LI_V2}/socialActions/${encodeURIComponent(post_id)}/likes/${encodeURIComponent(authorUrn)}`, { headers: headers(token) });
   }
-  return { success: true, message: `Unliked post ${post_id}` };
+  return { success: true, message: `Unliked ${post_id}` };
 }
 
-// ─── Network (partner-only — return honest messages) ─────────────────────────
+// ─── Partner-only (return honest messages) ────────────────────────────────────
 
-export async function getConnections({ count = 20 } = {}) {
-  return {
-    note: 'Connection list requires r_network_size scope — only available via LinkedIn Partner Program.',
-    connections: [],
-  };
+export async function getConnections() {
+  return { note: 'Requires LinkedIn Partner Program (r_network_size scope).', connections: [] };
 }
-
 export async function sendConnectionRequest({ profile_url }) {
-  return {
-    success: false,
-    note: 'LinkedIn removed connection requests from their public API.',
-    workaround: `Send a request manually at: ${profile_url}`,
-  };
+  return { success: false, note: 'Not available via API.', workaround: `Visit: ${profile_url}` };
 }
-
 export async function searchPeople({ keywords }) {
-  return {
-    note: 'People search requires LinkedIn Talent Solutions Partner Program.',
-    results: [],
-    workaround: `Search manually: https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keywords)}`,
-  };
+  return { note: 'Requires Partner API.', workaround: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keywords)}` };
 }
-
-export async function sendMessage({ recipient_urn }) {
-  return {
-    success: false,
-    note: 'Direct messaging requires w_messages scope — LinkedIn Partner Program only.',
-    workaround: 'Message at: https://www.linkedin.com/messaging',
-  };
+export async function sendMessage() {
+  return { success: false, note: 'Requires w_messages scope (Partner Program only).', workaround: 'https://www.linkedin.com/messaging' };
 }
